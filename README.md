@@ -32,13 +32,13 @@
 
 ```bash
 # 레포지토리 클론
-git clone https://github.com/yourusername/IoT-traffic-monitoring.git
+git clone https://github.com/ovthemoon/TrafficObserver.git
 
 # 프로젝트 디렉토리로 이동
-cd IoT-traffic-monitoring
+cd TrafficObserver
 
 # 필요한 패키지 설치
-npm install
+npm install express
 ```
 ## 사용법
 
