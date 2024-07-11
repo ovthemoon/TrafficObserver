@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MQTT Monitoring Service</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flipclock/0.7.8/flipclock.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flipclock/0.7.8/flipclock.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            background-color: black;
+        }
+
+        .slideshow-container {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            z-index: -1;
+        }
+
+        .slides {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-size: cover;
+            background-position: center;
+            display: none;
+        }
+
+        .slides.show {
+            display: block;
+            opacity: 1;
+        }
+
+        @keyframes fade {
+            from {
+            opacity: .4
+            }
+
+            to {
+            opacity: 1
+            }
+        }
+
+        .container {
+            max-width: 100%;
+            width: 80%;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 10px;
+            margin-top: 50px;
+            color: white;
+        }
+
+        h1 {
+            color: #fff;
+        }
+
+        table {
+            color: #fff;
+        }
+
+        .table-striped {
+            font-family: 'Roboto', sans-serif;
+            color: #fff;
+        }
+
+        .table-striped th,
+        .table-striped td {
+            border-color: #777;
+        }
+
+        .table-striped tbody tr:nth-of-type(odd) {
+            background-color: rgba(255, 255, 255, .1);
+        }
+
+        .table-striped tbody tr:nth-of-type(even) {
+            background-color: rgba(255, 255, 255, .15);
+        }
+
+        .clock {
+            display: block;
+            margin: 0 auto;
+        }
+
+        .scrollable {
+            max-height: 500px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+            padding: 20px;
+        }
+        </style>
+        <script>
+        var socket = io.connect();
+        var timer = null;
+        var slideIndex = 0;
+        var images = ['images/road1.jpg',
+            'images/road2.jpg',
+            'images/road3.jpg',
+            'images/road4.jpg',
+            'images/road5.jpg'
+        ];
+        var trafficChart = null;
+        var trafficData = [];
+
+        $(document).ready(function () {
+            console.log("MQTT Monitoring Service Ready");
+
+            var clock = $('.clock').FlipClock({
+            clockFace: 'TwentyFourHourClock'
+            });
+
+            showSlides();
+            createChart();
+
+            $('#toggleChartType').click(function () {
+            if (trafficChart.config.type === 'bar') {
+                trafficChart.config.type = 'line';
+            } else {
+                trafficChart.config.type = 'bar';
+            }
+            trafficChart.update();
+            });
+
+            socket.on('evt_traffic_s2c', function (data) {
+            data = JSON.parse(data);
+            trafficData = data;
+
+            var searchValue = $('#searchInput').val().toLowerCase();
+
+            var processedNames = [];
+            var filteredData = data.filter(function (entry) {
+                if (processedNames.includes(entry.routeName)) {
+                return false;
+                }
+                processedNames.push(entry.routeName);
+                return true;
+            });
+
+            if (searchValue) {
+                filteredData = filteredData.filter(function (entry) {
+                return entry.routeName.toLowerCase().includes(searchValue);
+                });
+            }
+
+            updateChart(filteredData);
+            updateTable(filteredData);
+            });
+            $('#searchInput').on('keyup', function () {
+                var value = $(this).val().toLowerCase();
+                filterTableAndChart(value);
+            });
+
+            if (timer == null) {
+                timer = window.setInterval(timer1, 5000);
+            }
+        });
+
+        function filterTableAndChart(searchValue) {
+            var uniqueData = trafficData.filter((entry, index, self) =>
+                index === self.findIndex((e) => (
+                    e.routeName === entry.routeName
+                ))
+            );
+
+            // 검색어로 필터링
+            var filteredData = uniqueData.filter(function (entry) {
+                return entry.routeName.toLowerCase().includes(searchValue);
+            });
+
+            updateChart(filteredData);
+            updateTable(filteredData);
+        }
+
+        function showSlides() {
+            var i;
+            var slides = document.getElementsByClassName("slides");
+            for (i = 0; i < slides.length; i++) {
+                slides[i].style.display = "none";
+                slides[i].style.opacity = 0;
+            }
+            slideIndex++;
+            if (slideIndex > slides.length) { slideIndex = 1 }
+            slides[slideIndex - 1].style.display = "block";
+            setTimeout(() => { slides[slideIndex - 1].style.opacity = 1; }, 100);
+            setTimeout(showSlides, 4000); 
+        }
+
+        function createChart() {
+            var ctx = document.getElementById('trafficChart').getContext('2d');
+            trafficChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [], 
+                    datasets: [{
+                        label: '교통량',
+                        data: [],
+                        backgroundColor: [],
+                        borderColor: [],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: 'white', 
+                                font: {
+                                    size: 14 
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.2)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: 'white',
+                                font: {
+                                    size: 14 
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.2)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: 'white', 
+                                font: {
+                                    size: 16 
+                                }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.7)', 
+                            titleFont: {
+                                size: 18, 
+                                weight: 'bold',
+                                color: 'white'
+                            },
+                            bodyFont: {
+                                size: 16, 
+                                color: 'white'
+                            },
+                            padding: 10,
+                            caretSize: 6, 
+                            cornerRadius: 4, 
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart(data) {
+            if (trafficChart != null) {
+                trafficChart.data.labels = data.map(data => data.routeName);
+                trafficChart.data.datasets[0].data = data.map(data => data.trafficAmout);
+                trafficChart.data.datasets[0].backgroundColor = data.map(data => {
+                    if (data.trafficAmout > 30) return 'rgba(255, 99, 132, 0.2)';
+                    else if (data.trafficAmout > 15) return 'rgba(255, 206, 86, 0.2)';
+                    else return 'rgba(75, 192, 192, 0.2)';
+                });
+                trafficChart.data.datasets[0].borderColor = data.map(data => {
+                    if (data.trafficAmout > 30) return 'rgba(255, 99, 132, 1)';
+                    else if (data.trafficAmout > 15) return 'rgba(255, 206, 86, 1)';
+                    else return 'rgba(75, 192, 192, 1)';
+                });
+
+                trafficChart.update(); // 차트를 갱신
+            }
+        }
+
+        function updateTable(data) {
+            $('#trafficTable tbody').empty(); // 기존의 모든 행을 제거
+
+            data.forEach(function (entry) {
+                var trafficCondition = "원활";
+                var bgColor = "bg-success"; // 초록색 배경
+
+                if (entry.trafficAmout > 30) {
+                    trafficCondition = "혼잡";
+                    bgColor = "bg-danger"; // 빨간색 배경
+                } else if (entry.trafficAmout > 15) {
+                    trafficCondition = "보통";
+                    bgColor = "bg-warning"; // 노란색 배경
+                }
+
+                var newRow = `<tr>
+                        <td>${entry.routeName}</td>
+                        <td class="${bgColor}">${trafficCondition}</td>
+                        <td>${entry.trafficAmout}</td>
+                      </tr>`;
+                $('#trafficTable tbody').append(newRow);
+            });
+        }
+
+        function timer1() {
+            socket.emit('evt_traffic_c2s', JSON.stringify({}));
+        }
+
+    </script>
+</head>
+
+<body>
+
+    <div class="slideshow-container">
+        <div class="slides fade" style="background-image: url('images/road1.jpg');"></div>
+        <div class="slides fade" style="background-image: url('images/road2.jpg');"></div>
+        <div class="slides fade" style="background-image: url('images/road3.jpg');"></div>
+        <div class="slides fade" style="background-image: url('images/road4.jpg');"></div>
+        <div class="slides fade" style="background-image: url('images/road5.jpg');"></div>
+    </div>
+    <div class="container mt-5">
+        <div class="row">
+            <div class="col-12 text-center">
+                <h1>MQTT 교통량 모니터링</h1>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-12 text-center">
+                <input type="text" id="searchInput" class="form-control" placeholder="도로 이름 검색">
+            </div>
+        </div>
+        <div class="d-flex justify-content-center">
+            <div class="col-4 text-center">
+                <div class="clock" style="margin: 4em;"></div> <!-- 시계를 표시할 요소 -->
+            </div>
+        </div>
+        <div class="row justify-content-center mt-4">
+            <div id="mqtt_logs" class="col-6">
+                <div class="scrollable">
+                    <table id="trafficTable" class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>도로 이름</th>
+                                <th>교통 상태</th>
+                                <th>교통량</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- 데이터가 여기 삽입됩니다 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="col-6">
+                <button id="toggleChartType" class="btn btn-secondary">차트 변경</button>
+                <canvas id="trafficChart"></canvas>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

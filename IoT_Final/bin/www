@@ -1,0 +1,150 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+var debug = require('debug')('iot-final:server');
+var http = require('http');
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+
+//connect to MongoDB
+var MongoDB = require('mongodb').MongoClient;
+var url = 'mongodb://localhost:27017';
+var db_obj=null;
+MongoDB.connect(url, function(err, db) {
+  if (err) {
+    console.log('Unable to connect to the mongoDB server. Error:', err);
+  } else {
+    db_obj=db;
+    console.log('Connection established to', url);
+  }
+});
+
+/**
+ * Create MQTT client
+ */
+var mqtt =require('mqtt');
+var mqtt_client = mqtt.connect('mqtt://127.0.0.1:1883');
+console.log("test");
+mqtt_client.on('connect', function () {
+  mqtt_client.subscribe("traffic");
+  console.log("Subscribed to topic 'traffic'");
+});
+
+mqtt_client.on("message",function(topic,message){
+  console.log(topic+":"+message.toString());
+  var obj=JSON.parse(message);
+  obj.creat_at=new Date();
+  console.log(obj);
+  var cursor=db_obj.db('Resources').collection('TrafficData');
+  cursor.insertOne(obj,function(err,result){
+    if(err){
+      console.log('Error:'+err);
+    }else{
+      console.log(JSON.stringify(result));
+    }
+  });
+});
+var io = require("socket.io")(server);
+io.on('connection', function (socket) {
+  console.log('A user connected');
+
+  socket.on('evt_traffic_c2s', function () {
+    var cursor = db_obj.db('Resources').collection('TrafficData');
+    const options = {
+      sort: { _id: -1 },
+      projection: { _id: 0, routeName: 1, trafficAmout: 1, stdHour: 1, created_at: 1 },
+    };
+    cursor.find({}, options).limit(20).toArray(function (err, results) { // 최근 20개의 데이터를 가져옴
+      if (err) {
+        console.log('Error:' + err);
+      } else {
+        console.log(results);
+        socket.emit('evt_traffic_s2c', JSON.stringify(results));
+      }
+    });
+  });
+  
+});
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
